@@ -1,0 +1,31 @@
+version: "0.1.0"
+namespaces:
+  default:
+    rules:
+      - id: "default-daily-cap"
+        primitive: budget_threshold
+        period: daily
+        limit_usd: 10.00
+        action: downgrade
+        downgrade_to_tier: cheap
+
+  demo:
+    rules:
+      - id: "demo-hourly-cap"
+        primitive: budget_threshold
+        period: hourly
+        limit_usd: 1.00
+        action: deny
+        deny_reason: "Hourly budget exceeded for demo namespace"
+
+      - id: "demo-route-preference"
+        primitive: route_preference
+        route_name: "/answer-routed"
+        prefer_tier: cheap
+
+      - id: "demo-cost-anomaly"
+        primitive: cost_anomaly
+        feature_id: "summarize"
+        baseline_window_hours: 24
+        threshold_multiplier: 3.0
+        action: alert
