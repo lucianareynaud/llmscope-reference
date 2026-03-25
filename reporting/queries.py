@@ -1,26 +1,29 @@
 """DuckDB-backed operational queries for canonical questions."""
-import duckdb
 from pathlib import Path
+
+import duckdb
 
 
 def cost_by_tenant_and_feature(telemetry_path: str) -> list[dict]:
     """Total and average cost per tenant_id and use_case (feature).
-    
+
     Answers: Which tenant or feature burns the most margin per request?
-    
+
     Args:
         telemetry_path: Path to telemetry JSONL file
-        
+
     Returns:
         List of dicts with tenant_id, feature_id, total_cost_usd, avg_cost_usd, request_count
     """
     if not Path(telemetry_path).exists() or Path(telemetry_path).stat().st_size == 0:
         return []
-    
+
     try:
         conn = duckdb.connect(":memory:")
+        # File path in FROM clause cannot be parameterized (table function arg)
+        # No external input in WHERE clause - only hardcoded IS NOT NULL filter
         query = f"""
-            SELECT 
+            SELECT
                 tenant_id,
                 use_case as feature_id,
                 SUM(estimated_cost_usd) as total_cost_usd,
@@ -33,7 +36,7 @@ def cost_by_tenant_and_feature(telemetry_path: str) -> list[dict]:
         """
         result = conn.execute(query).fetchall()
         conn.close()
-        
+
         return [
             {
                 "tenant_id": str(row[0]),
@@ -50,23 +53,25 @@ def cost_by_tenant_and_feature(telemetry_path: str) -> list[dict]:
 
 def experiment_cost_vs_outcome(telemetry_path: str) -> list[dict]:
     """Per experiment_id: average tokens, average cost, finish_reason=stop rate.
-    
+
     Answers: Which experiment increased cost without improving outcome?
-    
+
     Args:
         telemetry_path: Path to telemetry JSONL file
-        
+
     Returns:
-        List of dicts with experiment_id, avg_tokens_in, avg_tokens_out, avg_cost_usd, 
+        List of dicts with experiment_id, avg_tokens_in, avg_tokens_out, avg_cost_usd,
         success_rate, request_count
     """
     if not Path(telemetry_path).exists() or Path(telemetry_path).stat().st_size == 0:
         return []
-    
+
     try:
         conn = duckdb.connect(":memory:")
+        # File path in FROM clause cannot be parameterized (table function arg)
+        # No external input in WHERE clause - only hardcoded IS NOT NULL filter
         query = f"""
-            SELECT 
+            SELECT
                 experiment_id,
                 AVG(tokens_in) as avg_tokens_in,
                 AVG(tokens_out) as avg_tokens_out,
@@ -80,7 +85,7 @@ def experiment_cost_vs_outcome(telemetry_path: str) -> list[dict]:
         """
         result = conn.execute(query).fetchall()
         conn.close()
-        
+
         return [
             {
                 "experiment_id": str(row[0]),
@@ -98,22 +103,24 @@ def experiment_cost_vs_outcome(telemetry_path: str) -> list[dict]:
 
 def budget_pressure_by_namespace(decisions_path: str) -> list[dict]:
     """Per budget_namespace: count of allow/downgrade/deny.
-    
+
     Answers: Which namespace triggers downgrade or deny?
-    
+
     Args:
         decisions_path: Path to policy decisions JSONL file
-        
+
     Returns:
         List of dicts with budget_namespace, allow_count, downgrade_count, deny_count, total_count
     """
     if not Path(decisions_path).exists() or Path(decisions_path).stat().st_size == 0:
         return []
-    
+
     try:
         conn = duckdb.connect(":memory:")
+        # File path in FROM clause cannot be parameterized (table function arg)
+        # No external input in WHERE clause - only hardcoded IS NOT NULL filter
         query = f"""
-            SELECT 
+            SELECT
                 budget_namespace,
                 SUM(CASE WHEN decision = 'allow' THEN 1 ELSE 0 END) as allow_count,
                 SUM(CASE WHEN decision = 'downgrade' THEN 1 ELSE 0 END) as downgrade_count,
@@ -126,7 +133,7 @@ def budget_pressure_by_namespace(decisions_path: str) -> list[dict]:
         """
         result = conn.execute(query).fetchall()
         conn.close()
-        
+
         return [
             {
                 "budget_namespace": str(row[0]),
@@ -143,22 +150,24 @@ def budget_pressure_by_namespace(decisions_path: str) -> list[dict]:
 
 def fallback_latency_masking(telemetry_path: str) -> list[dict]:
     """p95 latency per route and is_fallback.
-    
+
     Answers: Which fallbacks are masking latency?
-    
+
     Args:
         telemetry_path: Path to telemetry JSONL file
-        
+
     Returns:
         List of dicts with route_name, is_fallback, p95_latency_ms, avg_latency_ms, request_count
     """
     if not Path(telemetry_path).exists() or Path(telemetry_path).stat().st_size == 0:
         return []
-    
+
     try:
         conn = duckdb.connect(":memory:")
+        # File path in FROM clause cannot be parameterized (table function arg)
+        # No external input in WHERE clause - only hardcoded IS NOT NULL filters
         query = f"""
-            SELECT 
+            SELECT
                 route_name,
                 is_fallback,
                 PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) as p95_latency_ms,
@@ -171,7 +180,7 @@ def fallback_latency_masking(telemetry_path: str) -> list[dict]:
         """
         result = conn.execute(query).fetchall()
         conn.close()
-        
+
         return [
             {
                 "route_name": str(row[0]),
@@ -188,23 +197,25 @@ def fallback_latency_masking(telemetry_path: str) -> list[dict]:
 
 def unsafe_routes(telemetry_path: str, cost_threshold_usd: float = 0.05) -> list[dict]:
     """Routes where average cost per request exceeds threshold.
-    
+
     Answers: Which routes are no longer economically safe?
-    
+
     Args:
         telemetry_path: Path to telemetry JSONL file
         cost_threshold_usd: Cost threshold in USD (default 0.05)
-        
+
     Returns:
         List of dicts with route_name, avg_cost_usd, max_cost_usd, request_count
     """
     if not Path(telemetry_path).exists() or Path(telemetry_path).stat().st_size == 0:
         return []
-    
+
     try:
         conn = duckdb.connect(":memory:")
+        # File path in FROM clause cannot be parameterized (table function arg)
+        # Only HAVING clause value is parameterized for SQL injection safety
         query = f"""
-            SELECT 
+            SELECT
                 route_name,
                 AVG(estimated_cost_usd) as avg_cost_usd,
                 MAX(estimated_cost_usd) as max_cost_usd,
@@ -212,12 +223,12 @@ def unsafe_routes(telemetry_path: str, cost_threshold_usd: float = 0.05) -> list
             FROM read_json_auto('{telemetry_path}')
             WHERE route_name IS NOT NULL AND estimated_cost_usd IS NOT NULL
             GROUP BY route_name
-            HAVING AVG(estimated_cost_usd) > {cost_threshold_usd}
+            HAVING AVG(estimated_cost_usd) > ?
             ORDER BY avg_cost_usd DESC
         """
-        result = conn.execute(query).fetchall()
+        result = conn.execute(query, [cost_threshold_usd]).fetchall()
         conn.close()
-        
+
         return [
             {
                 "route_name": str(row[0]),
@@ -232,11 +243,14 @@ def unsafe_routes(telemetry_path: str, cost_threshold_usd: float = 0.05) -> list
 
 
 if __name__ == "__main__":
-    import sys
     import json
-    
+    import sys
+
     if len(sys.argv) < 2:
-        print("Usage: python -m reporting.queries <query_name> [--telemetry path] [--decisions path] [--threshold value]")
+        print(
+            "Usage: python -m reporting.queries <query_name> "
+            "[--telemetry path] [--decisions path] [--threshold value]"
+        )
         print("\nAvailable queries:")
         print("  cost_by_tenant_and_feature")
         print("  experiment_cost_vs_outcome")
@@ -244,14 +258,14 @@ if __name__ == "__main__":
         print("  fallback_latency_masking")
         print("  unsafe_routes")
         sys.exit(1)
-    
+
     query_name = sys.argv[1]
-    
+
     # Parse arguments
     telemetry_path = "artifacts/logs/telemetry.jsonl"
     decisions_path = "artifacts/logs/policy_decisions.jsonl"
     threshold = 0.05
-    
+
     i = 2
     while i < len(sys.argv):
         if sys.argv[i] == "--telemetry" and i + 1 < len(sys.argv):
@@ -265,7 +279,7 @@ if __name__ == "__main__":
             i += 2
         else:
             i += 1
-    
+
     # Execute query
     if query_name == "cost_by_tenant_and_feature":
         result = cost_by_tenant_and_feature(telemetry_path)
@@ -280,5 +294,5 @@ if __name__ == "__main__":
     else:
         print(f"Unknown query: {query_name}")
         sys.exit(1)
-    
+
     print(json.dumps(result, indent=2))

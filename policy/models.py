@@ -6,7 +6,7 @@ from typing import Literal
 @dataclass(frozen=True)
 class PolicyVerdict:
     """Policy evaluation verdict."""
-    
+
     decision: Literal["allow", "downgrade", "deny"]
     reason: str | None = None
     effective_model_tier: str | None = None
@@ -17,7 +17,7 @@ class PolicyVerdict:
 @dataclass
 class PolicyDecisionRecord:
     """Policy decision record for JSONL logging."""
-    
+
     timestamp: str
     request_id: str
     tenant_id: str
@@ -37,7 +37,7 @@ class PolicyDecisionRecord:
     window_cost_usd: float | None
     window_limit_usd: float | None
     policy_version: str
-    
+
     def to_dict(self) -> dict:
         """Serialize to dict with native types, omitting None values."""
         result = {}
