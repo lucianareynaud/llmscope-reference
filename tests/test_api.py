@@ -100,9 +100,9 @@ namespaces:
         
         # Create fake telemetry showing cost
         telemetry_path = tmp_path / "telemetry.jsonl"
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
         import json
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
@@ -214,9 +214,9 @@ namespaces:
         
         # Create fake telemetry showing cost
         telemetry_path = tmp_path / "telemetry.jsonl"
-        from datetime import datetime, timedelta
+        from datetime import UTC, datetime, timedelta
         import json
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",

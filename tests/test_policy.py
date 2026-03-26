@@ -2,7 +2,7 @@
 import json
 import pytest
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from policy.loader import load_policy
 from policy.engine import YAMLPolicyEngine
 
@@ -41,7 +41,7 @@ def telemetry_file_with_costs(tmp_path):
     """Create telemetry JSONL with cost data."""
     telemetry_path = tmp_path / "telemetry.jsonl"
     
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     records = [
         {
             "timestamp": (now - timedelta(minutes=30)).isoformat() + "Z",
@@ -180,7 +180,7 @@ namespaces:
 """)
         
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
@@ -248,7 +248,7 @@ namespaces:
     def test_budget_under_limit_returns_allow(self, valid_policy_file, tmp_path):
         """Test that budget under limit returns allow."""
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
@@ -374,7 +374,7 @@ namespaces:
         
         # Test 1: budget_threshold triggers first (deny)
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
@@ -434,7 +434,7 @@ namespaces:
         
         # Create telemetry with baseline costs
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         
         # Historical baseline: 3 requests at ~0.01 each
         records = [
@@ -501,7 +501,7 @@ namespaces:
         
         # Create telemetry with baseline costs
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         
         records = [
             {
@@ -628,7 +628,7 @@ namespaces:
         
         # Create telemetry with baseline costs for "summarize"
         telemetry_path = tmp_path / "telemetry.jsonl"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         
         records = [
             {

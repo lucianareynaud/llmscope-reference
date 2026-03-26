@@ -1,5 +1,5 @@
 """YAML-based policy engine."""
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -139,7 +139,7 @@ class YAMLPolicyEngine:
             return PolicyVerdict(decision="allow")
 
         # Calculate window start based on period
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         if rule.period == "hourly":
             window_start = now - timedelta(hours=1)
         elif rule.period == "daily":
@@ -273,7 +273,7 @@ class YAMLPolicyEngine:
         baseline_hours = rule.baseline_window_hours or 24
         threshold_mult = rule.threshold_multiplier or 2.0
 
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         window_start = now - timedelta(hours=baseline_hours)
         window_start_iso = window_start.isoformat() + "Z"
 

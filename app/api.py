@@ -1,12 +1,14 @@
 """FastAPI gateway endpoint."""
-from datetime import datetime
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException
-from llmscope import call_llm, LLMRequestContext
-from app.schemas import InferRequest, InferResponse
 from policy.engine import YAMLPolicyEngine
 from policy.log import PolicyDecisionLog
 from policy.models import PolicyDecisionRecord
+
+from app.schemas import InferRequest, InferResponse
 from app.settings import BASE_DIR, DECISIONS_PATH
+from llmscope import LLMRequestContext, call_llm
 
 router = APIRouter()
 
@@ -17,7 +19,7 @@ policy_engine = YAMLPolicyEngine(str(BASE_DIR / "config" / "policy.yaml"))
 @router.post("/infer", response_model=InferResponse)
 async def infer(request: InferRequest) -> InferResponse:
     """Inference endpoint with policy evaluation.
-    
+
     Flow:
     1. Validate request (Pydantic)
     2. Construct LLMRequestContext
@@ -36,7 +38,7 @@ async def infer(request: InferRequest) -> InferResponse:
         experiment_id=request.experiment_id,
         budget_namespace=request.budget_namespace
     )
-    
+
     # Evaluate policy
     verdict = policy_engine.evaluate(
         budget_namespace=request.budget_namespace,
@@ -44,13 +46,13 @@ async def infer(request: InferRequest) -> InferResponse:
         model_tier=request.model_tier,
         telemetry_path=None  # Will be wired in Task 6
     )
-    
+
     # Handle denial
     if verdict.decision == "deny":
         # Log denial before returning 402
         record = PolicyDecisionRecord(
-            timestamp=datetime.utcnow().isoformat() + "Z",
-            request_id="denied-" + datetime.utcnow().strftime("%Y%m%d%H%M%S%f"),
+            timestamp=datetime.now(UTC).isoformat() + "Z",
+            request_id="denied-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S%f"),
             tenant_id=request.tenant_id,
             caller_id=request.caller_id,
             feature_id=request.feature_id,
@@ -70,7 +72,7 @@ async def infer(request: InferRequest) -> InferResponse:
             policy_version=policy_engine.config.version
         )
         PolicyDecisionLog.append(record, DECISIONS_PATH)
-        
+
         raise HTTPException(
             status_code=402,
             detail={
@@ -79,24 +81,24 @@ async def infer(request: InferRequest) -> InferResponse:
                 "policy_id": verdict.policy_id
             }
         )
-    
+
     # Determine effective tier
     if verdict.decision == "downgrade":
         effective_tier = verdict.effective_model_tier or "cheap"
     else:
         effective_tier = request.model_tier
-    
+
     # Call llmscope and measure latency
-    start_time = datetime.utcnow()
+    start_time = datetime.now(UTC)
     result = await call_llm(
         prompt=request.prompt,
         model_tier=effective_tier,
         route_name=request.route_name,
         context=context
     )
-    end_time = datetime.utcnow()
+    end_time = datetime.now(UTC)
     latency_ms = (end_time - start_time).total_seconds() * 1000
-    
+
     # Log decision with actual cost and latency
     record = PolicyDecisionRecord(
         timestamp=start_time.isoformat() + "Z",
@@ -120,7 +122,7 @@ async def infer(request: InferRequest) -> InferResponse:
         policy_version=policy_engine.config.version
     )
     PolicyDecisionLog.append(record, DECISIONS_PATH)
-    
+
     # Build response
     return InferResponse(
         request_id=result.request_id,

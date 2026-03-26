@@ -1,9 +1,11 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from llmscope import setup_otel, shutdown_otel
+
 from app.api import router
+from llmscope import setup_otel, shutdown_otel
 
 
 @asynccontextmanager

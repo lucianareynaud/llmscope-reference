@@ -1,11 +1,12 @@
 """HTTP request and response schemas."""
 from typing import Literal
+
 from pydantic import BaseModel, field_validator
 
 
 class InferRequest(BaseModel):
     """Inference request schema aligned with llmscope structured context."""
-    
+
     prompt: str
     tenant_id: str
     caller_id: str | None = None
@@ -14,14 +15,14 @@ class InferRequest(BaseModel):
     budget_namespace: str | None = None
     model_tier: Literal["cheap", "expensive"] = "cheap"
     route_name: str = "/answer-routed"
-    
+
     @field_validator("prompt")
     @classmethod
     def prompt_not_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("prompt must not be empty")
         return v
-    
+
     @field_validator("tenant_id")
     @classmethod
     def tenant_id_not_empty(cls, v: str) -> str:
@@ -32,7 +33,7 @@ class InferRequest(BaseModel):
 
 class InferResponse(BaseModel):
     """Inference response schema."""
-    
+
     request_id: str
     answer: str
     selected_model: str
