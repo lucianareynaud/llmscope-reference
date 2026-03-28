@@ -29,6 +29,3 @@ exclude = ["tests*", "artifacts*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-env = [
-    "OTEL_SDK_DISABLED=true",
-]
