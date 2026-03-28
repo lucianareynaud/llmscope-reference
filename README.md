@@ -1,87 +1,90 @@
 # llmscope-reference
 
-Reference implementation demonstrating operational governance, cost attribution, and policy control for LLM inference requests in production conditions.
+Reference workload demonstrating runtime economics and operational governance for LLM inference requests.
 
-## Purpose
+## What This Is
 
-This repository proves that the `llmscope` runtime contract is sufficient for building accountable AI systems. It demonstrates how to consume structured telemetry, apply pre-dispatch policy decisions, persist operational artifacts, and answer critical cost and performance questions without coupling to specific observability platforms or policy engines.
+A narrow reference application that consumes the `llmscope` runtime contract to apply local policy decisions, persist operational artifacts, and answer a fixed set of cost and performance questions.
 
-This is infrastructure for production LLM operations, not a demo app or generic AI platform.
+This repository demonstrates pre-dispatch policy evaluation, structured cost attribution, append-only JSONL artifacts, and DuckDB-backed queries. It is not a product, platform, or observability tool.
 
-## What This Repository Demonstrates
+## Five Operational Questions
 
-**Implemented and Verified:**
+This application answers:
 
-1. **Pre-dispatch policy evaluation** - Three policy primitives (budget_threshold, route_preference, cost_anomaly) that can allow, downgrade, or deny requests before calling LLM providers
-2. **Structured cost attribution** - Request context with tenant_id, caller_id, feature_id, experiment_id, budget_namespace flows through llmscope and into decision artifacts
-3. **Append-only operational artifacts** - JSONL decision log with fcntl advisory locking for concurrent write safety
-4. **DuckDB-backed operational queries** - Five queries answering canonical questions about margin burn, experiment outcomes, budget pressure, latency masking, and cost safety
-5. **YAML policy configuration** - Declarative policy rules with namespace isolation and three concrete primitives
-6. **OpenTelemetry instrumentation** - FastAPI app instrumented via llmscope's OTEL lifecycle
-7. **Test coverage** - 72 tests with no external API dependencies
+1. Which tenant or feature is burning the most margin per request?
+2. Which experiment increased cost without improving outcome?
+3. Which fallbacks or routing choices are masking latency?
+4. Which budget namespaces are triggering downgrades or denials?
+5. Which routes or features are no longer margin-safe?
 
-**Current Limitations:**
+Query results are derived from JSONL artifacts: `telemetry.jsonl` (emitted by llmscope) and `policy_decisions.jsonl` (emitted by this app).
 
-- Budget enforcement and cost anomaly detection evaluate against local telemetry JSONL. Pre-dispatch cost estimation uses a rough token count approximation.
-- Provider configuration and routing are handled by llmscope core; this repository does not demonstrate provider setup
+## What Is Implemented
 
-## Five Canonical Questions
+**Policy Engine** (`policy/engine.py`)
+- Three primitives: `budget_threshold`, `route_preference`, `cost_anomaly`
+- Pre-dispatch evaluation returns allow, downgrade, or deny
+- DuckDB queries against local telemetry JSONL for budget and anomaly checks
+- YAML configuration with namespace isolation
 
-This reference application is designed to answer:
+**Request Lifecycle** (`app/api.py`)
+- FastAPI endpoint validates requests, constructs `LLMRequestContext`
+- Pre-dispatch cost estimation using llmscope public API
+- Policy evaluation before provider call
+- Deny path returns HTTP 402 without calling provider
+- Downgrade path mutates model_tier to "cheap"
+- Decision logging to JSONL with fcntl advisory locking
 
-1. **Which tenant or feature is burning the most margin per request?**
-2. **Which experiment increased cost without improving outcome?**
-3. **Which fallbacks or routing choices are masking latency?**
-4. **Which budget namespaces are triggering downgrades or denials?**
-5. **Which routes or features are no longer margin-safe?**
+**Query Layer** (`reporting/queries.py`)
+- Five DuckDB-backed queries answering canonical questions
+- CLI interface: `python -m reporting.queries <query_name>`
+- Handles missing or empty JSONL files gracefully
 
-These questions are answered through DuckDB queries over JSONL artifacts emitted by llmscope (telemetry) and this reference app (policy decisions).
+**Testing** (`tests/`)
+- 72 tests across 8 modules
+- No external API calls (mocked llmscope, fixture-based)
+- CI runs on Python 3.11 and 3.12
 
-## Architecture
+## What Is Not Implemented
 
-```
-┌─────────────────┐
-│  FastAPI App    │  Validates requests, constructs LLMRequestContext
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ YAMLPolicyEngine│  Pre-dispatch evaluation: allow / downgrade / deny
-└────────┬────────┘  (budget_threshold, route_preference, cost_anomaly)
-         │
-         ▼
-┌─────────────────┐
-│    llmscope     │  Provider routing, cost tracking, OTEL emission
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ JSONL Artifacts │  policy_decisions.jsonl (this repo)
-└─────────────────┘  telemetry.jsonl (llmscope core)
-         │
-         ▼
-┌─────────────────┐
-│ DuckDB Queries  │  Five canonical operational queries
-└─────────────────┘
-```
+- Provider configuration examples (llmscope core handles providers, not demonstrated here)
+- Post-dispatch policy evaluation (only pre-dispatch exists)
+- HTTP query API (queries are CLI-only)
+- Policy hot reload (requires engine reload or restart)
+- Authentication or RBAC
+- Web dashboard or UI
+- Windows support (fcntl locking is POSIX-only)
 
-### Request Lifecycle
+## Request Lifecycle
 
 1. HTTP POST to `/infer` with prompt, tenant_id, and attribution fields
 2. FastAPI validates request, constructs `LLMRequestContext`
-3. Policy engine evaluates rules
-4. If `deny`: return HTTP 402, log decision, stop
-5. If `downgrade`: override model_tier to "cheap"
-6. If `allow`: proceed unchanged
-7. Call `llmscope.call_llm()` with context
-8. Log decision with actual cost and latency
-9. Return response to client
+3. Pre-dispatch cost estimation using `llmscope.get_model_for_tier()` and `estimate_cost()`
+4. Policy engine evaluates rules against local telemetry JSONL
+5. If `deny`: return HTTP 402, log decision, stop
+6. If `downgrade`: override model_tier to "cheap"
+7. If `allow`: proceed unchanged
+8. Call `llmscope.call_llm()` with context
+9. Log decision to `policy_decisions.jsonl`
+10. Return response to client
+
+```
+HTTP Request → FastAPI → Policy Engine → llmscope → Provider
+                  ↓            ↓            ↓
+            LLMRequestContext  ↓       telemetry.jsonl
+                          policy_decisions.jsonl
+                               ↓
+                          DuckDB Queries
+```
 
 ## Policy Primitives
 
+Three primitives are implemented in `policy/engine.py`:
+
 ### 1. budget_threshold
 
-Enforces spending limits per namespace over time windows.
+Enforces spending limits per namespace over time windows (hourly or daily).
 
 ```yaml
 - id: "demo-hourly-cap"
@@ -92,13 +95,13 @@ Enforces spending limits per namespace over time windows.
   deny_reason: "Hourly budget exceeded"
 ```
 
-**Status:** Functional — evaluates against local telemetry JSONL.
-
 Actions: `deny` (reject request) or `downgrade` (switch to cheap tier).
+
+Evaluates against local `telemetry.jsonl` using DuckDB query.
 
 ### 2. route_preference
 
-Downgrades expensive requests on routes configured for cheap tiers.
+Downgrades requests on routes configured for cheap tiers.
 
 ```yaml
 - id: "demo-route-preference"
@@ -107,11 +110,11 @@ Downgrades expensive requests on routes configured for cheap tiers.
   prefer_tier: cheap
 ```
 
-**Status:** Fully functional.
+Always downgrades if route matches and current tier is not cheap.
 
 ### 3. cost_anomaly
 
-Alerts when request cost exceeds historical baseline. Always allows, never blocks.
+Alerts when estimated request cost exceeds historical baseline.
 
 ```yaml
 - id: "demo-cost-anomaly"
@@ -122,11 +125,18 @@ Alerts when request cost exceeds historical baseline. Always allows, never block
   action: alert
 ```
 
-**Status:** Functional — evaluates against local telemetry JSONL.
+Always allows request (alert-only, never blocks).
 
-## Local Setup
+Evaluates against local `telemetry.jsonl` using DuckDB query.
 
-### Installation
+## Installation and Setup
+
+### Requirements
+
+- Python 3.11 or 3.12
+- POSIX-compatible OS (macOS, Linux) for fcntl file locking
+
+### Install
 
 ```bash
 git clone <repository-url>
@@ -150,7 +160,7 @@ uvicorn app.main:app --reload
 
 Server runs on `http://localhost:8000`.
 
-### Example Request
+## Example Request
 
 ```bash
 curl -X POST http://localhost:8000/infer \
@@ -178,49 +188,73 @@ Response:
 }
 ```
 
-## Operational Queries
+If policy denies the request:
 
-Queries read JSONL artifacts and return structured data.
+```json
+{
+  "detail": "Request denied by policy: Hourly budget exceeded"
+}
+```
+
+HTTP status: 402 Payment Required
+
+## Running Queries
+
+All queries are CLI-based and read from JSONL artifacts.
 
 ### 1. Cost by Tenant and Feature
 
+Which tenant or feature burns the most margin per request?
+
 ```bash
-python3 -m reporting.queries cost_by_tenant_and_feature
+python -m reporting.queries cost_by_tenant_and_feature
 ```
 
-Returns: tenant_id, feature_id, total_cost_usd, avg_cost_usd, request_count
+Output: `tenant_id`, `feature_id`, `total_cost_usd`, `avg_cost_usd`, `request_count`
 
 ### 2. Experiment Cost vs Outcome
 
+Which experiment increased cost without improving outcome?
+
 ```bash
-python3 -m reporting.queries experiment_cost_vs_outcome
+python -m reporting.queries experiment_cost_vs_outcome
 ```
 
-Returns: experiment_id, avg_tokens_in, avg_tokens_out, avg_cost_usd, success_rate, request_count
+Output: `experiment_id`, `avg_tokens_in`, `avg_tokens_out`, `avg_cost_usd`, `success_rate`, `request_count`
+
+Success rate = proportion of requests with `finish_reason='stop'`
 
 ### 3. Budget Pressure by Namespace
 
+Which budget namespaces trigger downgrades or denials?
+
 ```bash
-python3 -m reporting.queries budget_pressure_by_namespace
+python -m reporting.queries budget_pressure_by_namespace
 ```
 
-Returns: budget_namespace, allow_count, downgrade_count, deny_count, total_count
+Output: `budget_namespace`, `allow_count`, `downgrade_count`, `deny_count`, `total_count`
 
 ### 4. Fallback Latency Masking
 
+Which fallbacks or routing choices mask latency?
+
 ```bash
-python3 -m reporting.queries fallback_latency_masking
+python -m reporting.queries fallback_latency_masking
 ```
 
-Returns: route_name, is_fallback, p95_latency_ms, avg_latency_ms, request_count
+Output: `route_name`, `is_fallback`, `p95_latency_ms`, `avg_latency_ms`, `request_count`
 
 ### 5. Unsafe Routes
 
+Which routes are no longer economically safe?
+
 ```bash
-python3 -m reporting.queries unsafe_routes --threshold 0.05
+python -m reporting.queries unsafe_routes --threshold 0.05
 ```
 
-Returns: route_name, avg_cost_usd, max_cost_usd, request_count
+Output: `route_name`, `avg_cost_usd`, `max_cost_usd`, `request_count`
+
+Default threshold: $0.05 per request
 
 ## Testing
 
@@ -228,84 +262,99 @@ Returns: route_name, avg_cost_usd, max_cost_usd, request_count
 # Run all tests
 OTEL_SDK_DISABLED=true pytest -q
 
-# Run specific modules
+# Run specific test modules
 pytest tests/test_policy.py -v
 pytest tests/test_queries.py -v
 pytest tests/test_api.py -v
+pytest tests/test_telemetry_wiring.py -v
 ```
 
 72 tests across 8 modules. All tests use fixtures and mocks - no external API calls.
+
+Test coverage:
+- Policy engine evaluation (budget_threshold, route_preference, cost_anomaly)
+- Request validation and context construction
+- Decision logging with concurrent write safety
+- DuckDB queries over fixture data
+- API integration with mocked llmscope
+- Telemetry wiring and pre-dispatch cost estimation
 
 ## Repository Structure
 
 ```
 llmscope-reference/
-├── app/              # FastAPI application
-│   ├── api.py        # POST /infer endpoint with policy integration
-│   ├── main.py       # App initialization, OTEL lifecycle
-│   ├── schemas.py    # Request/response Pydantic models
-│   └── settings.py   # Configuration (paths, env vars)
-├── policy/           # Policy engine
-│   ├── engine.py     # YAMLPolicyEngine with three primitives
-│   ├── loader.py     # YAML config parsing and validation
-│   ├── models.py     # PolicyVerdict, PolicyDecisionRecord
-│   └── log.py        # JSONL decision logging with fcntl locking
-├── reporting/        # Query layer
-│   └── queries.py    # Five DuckDB-backed canonical queries
+├── app/                    # FastAPI application
+│   ├── api.py              # POST /infer endpoint with policy integration
+│   ├── main.py             # App initialization, OTEL lifecycle
+│   ├── schemas.py          # Request/response Pydantic models
+│   └── settings.py         # Configuration (paths, env vars)
+├── policy/                 # Policy engine
+│   ├── engine.py           # YAMLPolicyEngine with three primitives
+│   ├── loader.py           # YAML config parsing and validation
+│   ├── models.py           # PolicyVerdict, PolicyDecisionRecord
+│   └── log.py              # JSONL decision logging with fcntl locking
+├── reporting/              # Query layer
+│   └── queries.py          # Five DuckDB-backed canonical queries
 ├── config/
-│   └── policy.yaml   # Policy configuration (default, demo namespaces)
-├── artifacts/logs/   # Operational artifacts (gitignored)
-│   ├── telemetry.jsonl        # Emitted by llmscope core
-│   └── policy_decisions.jsonl # Emitted by this app
-└── tests/            # 68 tests, no external dependencies
+│   └── policy.yaml         # Policy configuration (default, demo namespaces)
+├── artifacts/logs/         # Operational artifacts (gitignored)
+│   ├── telemetry.jsonl     # Emitted by llmscope core
+│   └── policy_decisions.jsonl  # Emitted by this app
+├── tests/                  # 72 tests, no external dependencies
+└── .github/workflows/
+    └── ci.yml              # Python 3.11 and 3.12 test matrix
 ```
 
 ## Boundary with llmscope Core
 
-This repository is a **reference application**, not a product or platform.
+This repository consumes the `llmscope` runtime contract. It does not redefine or reimplement it.
 
 **llmscope (core library) owns:**
 - Provider abstraction and routing
 - Cost estimation and normalization
 - OpenTelemetry emission
-- Telemetry artifact generation
+- Telemetry artifact generation (`telemetry.jsonl`)
 - Runtime types (`LLMRequestContext`, `GatewayResult`)
 
 **llmscope-reference (this repo) owns:**
 - Concrete YAML policy engine
 - Pre-dispatch policy evaluation
-- Local decision artifacts (JSONL)
+- Local decision artifacts (`policy_decisions.jsonl`)
 - DuckDB operational queries
 - Reference HTTP API surface
 
-This separation proves that the llmscope runtime contract is sufficient for building operational governance without coupling to specific policy engines, artifact stores, or observability platforms.
+Integration point: `llmscope.call_llm(..., context=LLMRequestContext(...))`
+
+All inference requests pass through the public `llmscope` API. No internal imports from llmscope are used except where documented as technical debt in code comments.
 
 ## Dependencies
 
 ```toml
-llmscope @ git+https://github.com/lucianareynaud/llmscope.git@5d3fdfbc8558a297b95491c5f332c43a1588b627
+llmscope @ git+https://github.com/lucianareynaud/llmscope.git@5d3fdfbc
 fastapi>=0.110
 uvicorn[standard]>=0.29
 pyyaml>=6.0
 duckdb>=0.10
 pydantic>=2.0
+opentelemetry-instrumentation-fastapi>=0.45b0
 ```
 
-Pinned llmscope SHA corresponds to the commit introducing `LLMRequestContext` with attribution fields.
+llmscope is pinned to SHA `5d3fdfbc` (introduces `LLMRequestContext` with attribution fields).
 
-## Current Limitations
+Dev dependencies: `pytest>=8.0`, `pytest-asyncio>=0.23`, `httpx>=0.27`
 
-1. **Pre-dispatch cost estimation** - Uses rough token count approximation (word count * 1.3) for budget and anomaly detection
-2. **No provider configuration examples** - llmscope core handles providers, but setup is not demonstrated here
-3. **No post-dispatch policy** - Only pre-dispatch evaluation is implemented
-4. **No hot reload** - Policy changes require engine reload or restart
-5. **POSIX-only file locking** - fcntl advisory locking is not portable to Windows
-6. **No authentication or RBAC** - This is a reference implementation, not a production service
-7. **No UI or dashboard** - Queries are CLI-only
+## Known Limitations
 
-## Non-Goals
+1. **Pre-dispatch cost estimation**: Uses rough token count approximation (word count * 1.3) for budget and anomaly checks
+2. **No provider configuration examples**: llmscope core handles providers, but setup is not demonstrated in this repo
+3. **No post-dispatch policy**: Only pre-dispatch evaluation is implemented
+4. **No policy hot reload**: Policy changes require engine reload or restart
+5. **POSIX-only file locking**: fcntl advisory locking is not portable to Windows
+6. **No authentication or RBAC**: This is a reference implementation, not a production service
+7. **CLI-only queries**: No HTTP query API (queries run via `python -m reporting.queries`)
+8. **Local JSONL artifacts only**: No database or distributed artifact store
 
-This repository intentionally does not include:
+## What This Repository Does Not Include
 
 - Web dashboard or UI
 - Authentication or authorization
@@ -317,14 +366,17 @@ This repository intentionally does not include:
 - Agent orchestration
 - Evaluation pipelines or LLM-as-judge workflows
 
-These may be explored in future work, but are not part of the current scope.
+These are not planned for the first release.
 
-## Near-Term Roadmap
+## Future Work
 
-1. **Provider setup documentation** - Document how to configure llmscope providers
-2. **Post-dispatch policy** - Add policy evaluation after LLM response (e.g., output validation)
-3. **Policy reload endpoint** - Add HTTP endpoint to reload policy without restart
-4. **Query API** - Expose queries via HTTP endpoints, not just CLI
+Potential extensions (not committed):
+
+1. Provider setup documentation
+2. Post-dispatch policy evaluation (e.g., output validation)
+3. Policy reload HTTP endpoint
+4. HTTP query API (expose queries via REST endpoints)
+5. Windows compatibility (replace fcntl with cross-platform locking)
 
 ## License
 
