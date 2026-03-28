@@ -161,7 +161,7 @@ class YAMLPolicyEngine:
                     SELECT COALESCE(SUM(estimated_cost_usd), 0.0) as total_cost
                     FROM read_json_auto('{telemetry_path}')
                     WHERE timestamp >= ?
-                      AND budget_namespace = ?
+                      AND audit_tags['budget_namespace'] = ?
                 """
                 result = conn.execute(query, [window_start_iso, budget_namespace]).fetchone()
             else:
@@ -169,7 +169,7 @@ class YAMLPolicyEngine:
                     SELECT COALESCE(SUM(estimated_cost_usd), 0.0) as total_cost
                     FROM read_json_auto('{telemetry_path}')
                     WHERE timestamp >= ?
-                      AND budget_namespace IS NULL
+                      AND audit_tags['budget_namespace'] IS NULL
                 """
                 result = conn.execute(query, [window_start_iso]).fetchone()
 

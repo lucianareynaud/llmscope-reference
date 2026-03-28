@@ -7,8 +7,8 @@ from policy.log import PolicyDecisionLog
 from policy.models import PolicyDecisionRecord
 
 from app.schemas import InferRequest, InferResponse
-from app.settings import BASE_DIR, DECISIONS_PATH
-from llmscope import LLMRequestContext, call_llm
+from app.settings import BASE_DIR, DECISIONS_PATH, TELEMETRY_PATH
+from llmscope import LLMRequestContext, call_llm, estimate_cost, get_model_for_tier
 
 router = APIRouter()
 
@@ -34,9 +34,18 @@ async def infer(request: InferRequest) -> InferResponse:
     context = LLMRequestContext(
         tenant_id=request.tenant_id,
         caller_id=request.caller_id,
+        use_case=request.feature_id,
         feature_id=request.feature_id,
         experiment_id=request.experiment_id,
         budget_namespace=request.budget_namespace
+    )
+
+    # Pre-dispatch cost estimation
+    estimate_model = get_model_for_tier(request.route_name, request.model_tier)
+    tokens_in_estimate = int(len(request.prompt.split()) * 1.3)
+    tokens_out_estimate = 256
+    pre_dispatch_cost = estimate_cost(
+        estimate_model, tokens_in_estimate, tokens_out_estimate
     )
 
     # Evaluate policy
@@ -44,7 +53,9 @@ async def infer(request: InferRequest) -> InferResponse:
         budget_namespace=request.budget_namespace,
         route_name=request.route_name,
         model_tier=request.model_tier,
-        telemetry_path=None  # Will be wired in Task 6
+        telemetry_path=TELEMETRY_PATH,
+        feature_id=request.feature_id,
+        current_estimated_cost=pre_dispatch_cost,
     )
 
     # Handle denial

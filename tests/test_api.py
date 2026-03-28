@@ -106,7 +106,7 @@ namespaces:
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "deny-test",
+            "audit_tags": {"budget_namespace": "deny-test"},
             "estimated_cost_usd": 0.01
         }
         telemetry_path.write_text(json.dumps(record) + "\n")
@@ -220,7 +220,7 @@ namespaces:
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "deny-test",
+            "audit_tags": {"budget_namespace": "deny-test"},
             "estimated_cost_usd": 0.01
         }
         telemetry_path.write_text(json.dumps(record) + "\n")

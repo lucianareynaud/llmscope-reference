@@ -18,13 +18,11 @@ This is infrastructure for production LLM operations, not a demo app or generic 
 4. **DuckDB-backed operational queries** - Five queries answering canonical questions about margin burn, experiment outcomes, budget pressure, latency masking, and cost safety
 5. **YAML policy configuration** - Declarative policy rules with namespace isolation and three concrete primitives
 6. **OpenTelemetry instrumentation** - FastAPI app instrumented via llmscope's OTEL lifecycle
-7. **Test coverage** - 68 tests with no external API dependencies
+7. **Test coverage** - 72 tests with no external API dependencies
 
 **Current Limitations:**
 
-- Budget enforcement (`budget_threshold`) and cost anomaly detection (`cost_anomaly`) require telemetry consumption, which is **not yet wired** in the policy evaluation path (hardcoded `telemetry_path=None` in app/api.py)
-- Policy decisions are logged, but budget calculations cannot access historical telemetry to enforce limits
-- Queries work if llmscope emits telemetry, but policy engine cannot consume it yet
+- Budget enforcement and cost anomaly detection evaluate against local telemetry JSONL. Pre-dispatch cost estimation uses a rough token count approximation.
 - Provider configuration and routing are handled by llmscope core; this repository does not demonstrate provider setup
 
 ## Five Canonical Questions
@@ -71,7 +69,7 @@ These questions are answered through DuckDB queries over JSONL artifacts emitted
 
 1. HTTP POST to `/infer` with prompt, tenant_id, and attribution fields
 2. FastAPI validates request, constructs `LLMRequestContext`
-3. Policy engine evaluates rules (currently only route_preference is functional)
+3. Policy engine evaluates rules
 4. If `deny`: return HTTP 402, log decision, stop
 5. If `downgrade`: override model_tier to "cheap"
 6. If `allow`: proceed unchanged
@@ -94,7 +92,7 @@ Enforces spending limits per namespace over time windows.
   deny_reason: "Hourly budget exceeded"
 ```
 
-**Status:** Implemented but not functional (requires telemetry wiring).
+**Status:** Functional — evaluates against local telemetry JSONL.
 
 Actions: `deny` (reject request) or `downgrade` (switch to cheap tier).
 
@@ -124,7 +122,7 @@ Alerts when request cost exceeds historical baseline. Always allows, never block
   action: alert
 ```
 
-**Status:** Implemented but not functional (requires telemetry wiring).
+**Status:** Functional — evaluates against local telemetry JSONL.
 
 ## Local Setup
 
@@ -236,7 +234,7 @@ pytest tests/test_queries.py -v
 pytest tests/test_api.py -v
 ```
 
-68 tests across 7 modules. All tests use fixtures and mocks - no external API calls.
+72 tests across 8 modules. All tests use fixtures and mocks - no external API calls.
 
 ## Repository Structure
 
@@ -297,7 +295,7 @@ Pinned llmscope SHA corresponds to the commit introducing `LLMRequestContext` wi
 
 ## Current Limitations
 
-1. **Telemetry consumption not wired** - Policy engine cannot access telemetry for budget enforcement or cost anomaly detection (hardcoded `telemetry_path=None`)
+1. **Pre-dispatch cost estimation** - Uses rough token count approximation (word count * 1.3) for budget and anomaly detection
 2. **No provider configuration examples** - llmscope core handles providers, but setup is not demonstrated here
 3. **No post-dispatch policy** - Only pre-dispatch evaluation is implemented
 4. **No hot reload** - Policy changes require engine reload or restart
@@ -323,11 +321,10 @@ These may be explored in future work, but are not part of the current scope.
 
 ## Near-Term Roadmap
 
-1. **Wire telemetry consumption** - Connect policy engine to llmscope telemetry for budget enforcement
-2. **Provider setup documentation** - Document how to configure llmscope providers
-3. **Post-dispatch policy** - Add policy evaluation after LLM response (e.g., output validation)
-4. **Policy reload endpoint** - Add HTTP endpoint to reload policy without restart
-5. **Query API** - Expose queries via HTTP endpoints, not just CLI
+1. **Provider setup documentation** - Document how to configure llmscope providers
+2. **Post-dispatch policy** - Add policy evaluation after LLM response (e.g., output validation)
+3. **Policy reload endpoint** - Add HTTP endpoint to reload policy without restart
+4. **Query API** - Expose queries via HTTP endpoints, not just CLI
 
 ## License
 

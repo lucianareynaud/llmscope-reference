@@ -46,19 +46,19 @@ def telemetry_file_with_costs(tmp_path):
         {
             "timestamp": (now - timedelta(minutes=30)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "demo",
+            "audit_tags": {"budget_namespace": "demo"},
             "estimated_cost_usd": 0.50
         },
         {
             "timestamp": (now - timedelta(minutes=20)).isoformat() + "Z",
             "request_id": "req-2",
-            "budget_namespace": "demo",
+            "audit_tags": {"budget_namespace": "demo"},
             "estimated_cost_usd": 0.40
         },
         {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-3",
-            "budget_namespace": "demo",
+            "audit_tags": {"budget_namespace": "demo"},
             "estimated_cost_usd": 0.15
         },
     ]
@@ -184,7 +184,7 @@ namespaces:
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "test",
+            "audit_tags": {"budget_namespace": "test"},
             "estimated_cost_usd": 0.60
         }
         telemetry_path.write_text(json.dumps(record) + "\n")
@@ -252,7 +252,7 @@ namespaces:
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "demo",
+            "audit_tags": {"budget_namespace": "demo"},
             "estimated_cost_usd": 0.50  # Under 1.00 limit
         }
         telemetry_path.write_text(json.dumps(record) + "\n")
@@ -378,7 +378,7 @@ namespaces:
         record = {
             "timestamp": (now - timedelta(minutes=10)).isoformat() + "Z",
             "request_id": "req-1",
-            "budget_namespace": "test",
+            "audit_tags": {"budget_namespace": "test"},
             "estimated_cost_usd": 0.60
         }
         telemetry_path.write_text(json.dumps(record) + "\n")

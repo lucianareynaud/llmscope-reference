@@ -40,3 +40,18 @@ def mock_llmscope(monkeypatch):
     
     monkeypatch.setattr("app.api.call_llm", fake_call_llm)
     yield
+
+
+@pytest.fixture(autouse=True)
+def restore_default_policy():
+    """Restore policy engine to default config after each test."""
+    yield
+    # Restore default policy after test completes
+    try:
+        from app.api import policy_engine
+        from app.settings import BASE_DIR
+        policy_engine.config_path = str(BASE_DIR / "config" / "policy.yaml")
+        policy_engine.reload()
+    except Exception:
+        # If policy engine doesn't exist yet, that's fine
+        pass
